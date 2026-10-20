@@ -1,0 +1,12 @@
+# Everything for YotoLib lives in this namespace.
+# The pod spec meets the "restricted" Pod Security Standard, so it is enforced.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: yotolib
+  labels:
+    app.kubernetes.io/name: yotolib
+    app.kubernetes.io/part-of: yotolib
+    app.kubernetes.io/managed-by: kubectl
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

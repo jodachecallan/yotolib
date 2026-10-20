@@ -1,18 +1,22 @@
 """Download a Yoto card into a library folder and write a zip backup."""
 
+import ipaddress
 import json
 import os
 import re
+import socket
 import shutil
 import tempfile
 import zipfile
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
 DOWNLOAD_TIMEOUT_SECONDS = 120
+MAX_REDIRECTS = 5
+CARD_HOSTS = {"yoto.io", "www.yoto.io"}
 MAX_ATTEMPTS = 10
 RECOVERY_NAME = "recovery.json"
 DISCOVER_RE = re.compile(r"(Discover\: [0-9]+ track[s]?)")
@@ -111,13 +115,48 @@ def _log(on_event, level, message):
     _emit(on_event, type="log", level=level, message=message)
 
 
-def fetch_url(url):
+class UnsafeUrl(requests.RequestException):
+    """The URL points somewhere this app will not download from."""
+
+
+def check_public_url(url):
+    """Allow only https URLs whose host resolves to public addresses.
+
+    Card JSON names the cover, track, and icon URLs. Without this check a
+    crafted card could make the server read internal addresses (cluster
+    services, cloud metadata) and save the reply where the UI can read it.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise UnsafeUrl(f"Only https links can be downloaded: {url}")
+    host = parsed.hostname
+    if not host:
+        raise UnsafeUrl(f"The link has no host name: {url}")
     try:
-        return requests.get(url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
-    except requests.Timeout as ex:
-        raise TimeoutError(
-            f"Download took longer than {DOWNLOAD_TIMEOUT_SECONDS} seconds."
-        ) from ex
+        addresses = socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as ex:
+        raise requests.ConnectionError(f"Could not resolve {host}.") from ex
+    for address in addresses:
+        ip = ipaddress.ip_address(address[4][0].split("%", 1)[0])
+        if not ip.is_global:
+            raise UnsafeUrl(f"Refused to download from a private address: {host}")
+
+
+def fetch_url(url):
+    """GET a public https URL, checking every redirect hop the same way."""
+    for _hop in range(MAX_REDIRECTS + 1):
+        check_public_url(url)
+        try:
+            response = requests.get(url, timeout=DOWNLOAD_TIMEOUT_SECONDS, allow_redirects=False)
+        except requests.Timeout as ex:
+            raise TimeoutError(
+                f"Download took longer than {DOWNLOAD_TIMEOUT_SECONDS} seconds."
+            ) from ex
+        if not response.is_redirect:
+            return response
+        url = urljoin(url, response.headers.get("location", ""))
+        response.close()
+    raise UnsafeUrl(f"Too many redirects for {url}")
 
 
 def ensure_https(url):
@@ -126,11 +165,25 @@ def ensure_https(url):
     return url
 
 
-def card_id_from_url(url):
+def card_page_url(url):
+    """The https form of a Yoto card link, or None for any other link."""
     parsed = urlparse(ensure_https((url or "").strip()))
-    host = (parsed.hostname or "").lower()
-    if host not in {"yoto.io", "www.yoto.io"}:
+    if parsed.scheme not in ("http", "https") or (parsed.hostname or "").lower() not in CARD_HOSTS:
         return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port not in (None, 443) or parsed.username or parsed.password:
+        return None
+    return parsed._replace(scheme="https", netloc=parsed.hostname.lower(), fragment="").geturl()
+
+
+def card_id_from_url(url):
+    page = card_page_url(url)
+    if page is None:
+        return None
+    parsed = urlparse(page)
     parts = [part for part in parsed.path.split("/") if part]
     if len(parts) != 1:
         return None
@@ -517,7 +570,9 @@ def extract_one(url, library_dir, backup_dir, attempt, on_event=None, replace_ex
     if attempt >= MAX_ATTEMPTS:
         raise ExtractFail("URL has been tried 10 times and not able to complete.")
     _log(on_event, "info", f"Attempt {attempt} for {url}")
-    url = ensure_https(url)
+    url = card_page_url(url)
+    if url is None:
+        raise ExtractFail("Only Yoto card links (https://yoto.io/...) can be downloaded.")
     try:
         response = fetch_url(url)
     except (TimeoutError, requests.RequestException) as ex:
@@ -550,6 +605,13 @@ def extract_urls(urls, library_dir, backup_dir, on_event=None, replace_existing=
     while index < total:
         url = cleaned[index]
         card_id = card_id_from_url(url)
+        if card_id is None:
+            message = "Only Yoto card links (https://yoto.io/...) can be downloaded."
+            _log(on_event, "error", f"Skipped {url}: {message}")
+            _emit(on_event, type="result", status="fail", url=url, error=message)
+            index += 1
+            _emit(on_event, type="status", index=index, total=total, url="", finished=index)
+            continue
         if not replace_existing and card_id and library_has_card(library_dir, card_id):
             result = existing_card_result(library_dir, card_id, url)
             _log(on_event, "info", f"Already in the library: {result['title']}")

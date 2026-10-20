@@ -1,0 +1,28 @@
+# Do not edit the host here. Your overlay replaces it with your LAN name
+# (see overlays/example). Keep that name on your LAN.
+# This app has no login. ingressClassName is omitted so the cluster default
+# class is used. Set it if the cluster has no default Ingress class.
+# Google Drive sign-in uses a device code, so plain http works here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yotolib-web
+  namespace: yotolib
+  labels:
+    app.kubernetes.io/name: yotolib
+    app.kubernetes.io/instance: yotolib
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: yotolib
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  rules:
+    - host: yotolib.example.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yotolib-web
+                port:
+                  name: http

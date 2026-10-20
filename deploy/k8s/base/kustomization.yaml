@@ -1,0 +1,24 @@
+# Generic YotoLib manifests. Do not apply this directly: copy
+# overlays/example to overlays/local, set your values there, and run
+#   kubectl apply -k deploy/k8s/overlays/local
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: yotolib
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  - name: yotolib-settings
+    options:
+      labels:
+        app.kubernetes.io/name: yotolib
+        app.kubernetes.io/instance: yotolib
+        app.kubernetes.io/component: web
+        app.kubernetes.io/part-of: yotolib
+        app.kubernetes.io/managed-by: kubectl
+    literals:
+      - YOTOLIB_ALLOWED_HOSTS=yotolib.example.lan

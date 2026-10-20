@@ -1,0 +1,53 @@
+# Template for your own deployment. Copy this folder and edit the copy:
+#   cp -r deploy/k8s/overlays/example deploy/k8s/overlays/local
+#   kubectl apply -k deploy/k8s/overlays/local
+# overlays/local is in .gitignore, so your host names stay on your machine.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+
+# Pin a release instead of latest. Tags match the GitHub releases (v2.1.0),
+# plus 2.1.0, 2.1, and latest.
+images:
+  - name: ghcr.io/jodachecallan/yotolib
+    newTag: v2.1.0
+
+# The host name the app answers to. Use the same name as the Ingress host.
+# Add more names separated by commas.
+configMapGenerator:
+  - name: yotolib-settings
+    behavior: merge
+    literals:
+      - YOTOLIB_ALLOWED_HOSTS=yotolib.example.lan
+
+patches:
+  # The LAN DNS name you open the app on.
+  - target:
+      kind: Ingress
+      name: yotolib-web
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: yotolib.example.lan
+
+  # Uncomment if the cluster has no default Ingress class.
+  # - target:
+  #     kind: Ingress
+  #     name: yotolib-web
+  #   patch: |-
+  #     - op: add
+  #       path: /spec/ingressClassName
+  #       value: nginx
+
+  # Uncomment to size the library volume or pick a StorageClass.
+  # - target:
+  #     kind: PersistentVolumeClaim
+  #     name: yotolib-library-data
+  #   patch: |-
+  #     - op: replace
+  #       path: /spec/resources/requests/storage
+  #       value: 50Gi
+  #     - op: add
+  #       path: /spec/storageClassName
+  #       value: local-path

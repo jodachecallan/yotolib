@@ -1,0 +1,58 @@
+# Limits what the YotoLib pod can reach. Inbound: only the app port.
+# Outbound: cluster DNS, and public internet addresses for Yoto and Google.
+# Private, link-local (cloud metadata), and carrier-grade NAT ranges are
+# blocked, so the pod cannot reach other cluster services or your LAN.
+# Enforcement needs a CNI with NetworkPolicy support (Calico, Cilium, or the
+# k3s built-in policy controller). Plain flannel ignores this file.
+# If DNS fails after applying, check the labels on your cluster DNS pods:
+#   kubectl -n kube-system get pods --show-labels
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: yotolib-web
+  namespace: yotolib
+  labels:
+    app.kubernetes.io/name: yotolib
+    app.kubernetes.io/instance: yotolib
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: yotolib
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: yotolib
+      app.kubernetes.io/instance: yotolib
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8765
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

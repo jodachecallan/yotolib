@@ -5,6 +5,9 @@ const state = {
   page: "home",
   cardId: null,
   jobTimer: null,
+  driveTimer: null,
+  drivePopup: null,
+  drive: null,
   audio: null,
   cards: [],
   query: "",
@@ -22,6 +25,7 @@ navButtons.forEach((button) => {
 function show(page) {
   stopPlayback();
   stopJobPoll();
+  stopDrivePoll();
   state.page = page;
   state.cardId = page === "library" ? state.cardId : null;
   navButtons.forEach((button) => {
@@ -30,6 +34,7 @@ function show(page) {
   if (page === "home") loadHome();
   if (page === "library") loadLibrary();
   if (page === "add") loadAdd();
+  if (page === "cloud") loadCloud();
   if (page === "settings") loadSettings();
 }
 
@@ -60,7 +65,7 @@ function loadHome() {
           ${mark('<rect x="8" y="8" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 15V5.5A1.5 1.5 0 0 1 7.5 4H16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>')}
           <div class="step-copy">
             <strong>Keep a spare copy.</strong>
-            <p>A zip of that card goes in your backup folder, separate from the library files.</p>
+            <p>A zip of that card goes in your backup folder, separate from the library files. From Cloud backup you can also copy the library to a Google Drive folder.</p>
           </div>
         </li>
         <li>
@@ -673,6 +678,282 @@ async function loadSettings() {
     document.querySelector("#settings-note").innerHTML = `<p class="banner">${escapeHtml(error.message)}</p>`;
   }
   form.addEventListener("submit", saveSettings);
+}
+
+async function loadCloud() {
+  stopJobPoll();
+  view.innerHTML = `
+    <section class="panel">
+      <h2>Cloud backup</h2>
+      <p class="muted">Copy the library to a folder in your Google Drive, so it survives if this computer or server is lost. Backups run only when you start them. Cards that have not changed since the last backup are skipped.</p>
+      <div class="cloud-status">
+        <h3>Google Drive</h3>
+        <p id="drive-state" class="muted">Checking Google Drive…</p>
+        <div class="button-row">
+          <button type="button" class="primary" id="drive-signin">Sign in with Google</button>
+          <button type="button" class="primary" id="drive-backup" hidden>Back up now</button>
+          <button type="button" class="ghost" id="drive-stop" hidden>Stop backup</button>
+          <button type="button" class="ghost" id="drive-signout" hidden>Sign out</button>
+        </div>
+        <div id="drive-login"></div>
+        <div id="drive-note"></div>
+        <div id="drive-job"></div>
+      </div>
+      <details class="cloud-setup" id="drive-setup">
+        <summary>Google Drive setup</summary>
+        <form id="drive-form">
+          <div id="drive-client">
+            <p class="terms-hint">In Google Cloud Console, enable the Google Drive API and create an OAuth client of type <strong>TVs and Limited Input devices</strong>. Paste its client id and secret here.</p>
+            <div class="field">
+              <label for="drive_client_id">Google client id</label>
+              <input id="drive_client_id" name="client_id" type="text" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="drive_secret">Google client secret</label>
+              <input id="drive_secret" name="client_secret" type="password" autocomplete="off">
+              <p class="terms-hint" id="drive-secret-hint"></p>
+            </div>
+          </div>
+          <p class="terms-hint" id="drive-client-env" hidden>The Google client is set by the server.</p>
+          <div class="field">
+            <label for="drive_folder">Google Drive folder</label>
+            <input id="drive_folder" name="folder_name" type="text" required>
+            <p class="terms-hint">YotoLib creates this folder in your Drive the first time it backs up. It can only see files it created.</p>
+          </div>
+          <button class="primary" type="submit">Save setup</button>
+        </form>
+      </details>
+    </section>`;
+  await loadDrive();
+}
+
+function stopDrivePoll() {
+  if (state.driveTimer) {
+    clearInterval(state.driveTimer);
+    state.driveTimer = null;
+  }
+}
+
+function driveNote(html) {
+  const note = document.querySelector("#drive-note");
+  if (note) note.innerHTML = html;
+}
+
+async function loadDrive() {
+  const form = document.querySelector("#drive-form");
+  form.addEventListener("submit", saveDriveSettings);
+  document.querySelector("#drive-signin").addEventListener("click", signInDrive);
+  document.querySelector("#drive-backup").addEventListener("click", backupToDrive);
+  document.querySelector("#drive-stop").addEventListener("click", () => driveAction("/api/drive/backup", "DELETE"));
+  document.querySelector("#drive-signout").addEventListener("click", signOutDrive);
+  try {
+    const status = await api("/api/drive");
+    form.client_id.value = status.clientId || "";
+    form.folder_name.value = status.folderName || "";
+    document.querySelector("#drive-setup").open = !status.clientConfigured;
+    state.drive = null;
+    applyDrive(status);
+  } catch (error) {
+    driveNote(`<p class="banner">${escapeHtml(error.message)}</p>`);
+  }
+}
+
+function applyDrive(status) {
+  if (state.page !== "cloud") return;
+  const previous = state.drive;
+  state.drive = status;
+  const login = status.login;
+  const pending = Boolean(login && login.status === "pending");
+  const running = status.backup.status === "running";
+
+  document.querySelector("#drive-state").textContent = status.connected
+    ? `Signed in${status.email ? ` as ${status.email}` : ""}. Backups go to ${status.folderName} on Google Drive.`
+    : status.clientConfigured
+      ? "Not signed in."
+      : "Finish Google Drive setup below, then sign in.";
+  document.querySelector("#drive-client").hidden = status.clientFromEnv;
+  document.querySelector("#drive-client-env").hidden = !status.clientFromEnv;
+  document.querySelector("#drive-secret-hint").textContent = status.secretSet
+    ? "A client secret is saved. Leave this blank to keep it."
+    : "";
+
+  const signIn = document.querySelector("#drive-signin");
+  signIn.hidden = status.connected;
+  signIn.disabled = !status.clientConfigured || pending;
+  const backup = document.querySelector("#drive-backup");
+  backup.hidden = !status.connected || running;
+  document.querySelector("#drive-stop").hidden = !running;
+  const signOut = document.querySelector("#drive-signout");
+  signOut.hidden = !status.connected;
+  signOut.disabled = running;
+
+  paintDriveLogin(login, previous && previous.login);
+  paintDriveJob(status.backup);
+
+  const wasPending = Boolean(previous && previous.login && previous.login.status === "pending");
+  if (wasPending && !pending) {
+    closeDrivePopup();
+    if (login && login.status === "done") {
+      driveNote(`<p class="ok">Signed in to Google Drive.</p>`);
+    } else if (login && login.error) {
+      driveNote(`<p class="banner">${escapeHtml(login.error)}</p>`);
+    }
+  }
+
+  if (pending || running) {
+    if (!state.driveTimer) state.driveTimer = setInterval(pollDrive, 2000);
+  } else {
+    stopDrivePoll();
+  }
+}
+
+async function pollDrive() {
+  try {
+    applyDrive(await api("/api/drive"));
+  } catch (error) {
+    stopDrivePoll();
+    driveNote(`<p class="banner">${escapeHtml(error.message)}</p>`);
+  }
+}
+
+function paintDriveLogin(login, previous) {
+  const slot = document.querySelector("#drive-login");
+  if (!login || login.status !== "pending") {
+    slot.innerHTML = "";
+    return;
+  }
+  if (previous && previous.status === "pending" && previous.userCode === login.userCode && slot.innerHTML) return;
+  const minutes = Math.max(1, Math.round(login.expiresIn / 60));
+  slot.innerHTML = `
+    <div class="drive-login">
+      <p>In the Google window, enter this code and allow access:</p>
+      <p class="drive-code">${escapeHtml(login.userCode)}</p>
+      <p class="terms-hint">The code expires in about ${minutes} minutes. This page updates when you finish.</p>
+      <div class="button-row">
+        <button type="button" class="ghost" id="drive-copy">Copy code</button>
+        <button type="button" class="ghost" id="drive-open">Open Google window</button>
+        <button type="button" class="ghost" id="drive-cancel">Cancel</button>
+      </div>
+    </div>`;
+  document.querySelector("#drive-copy").addEventListener("click", () => copyDriveCode(login.userCode));
+  document.querySelector("#drive-open").addEventListener("click", () => openDrivePopup(login.verificationUrl));
+  document.querySelector("#drive-cancel").addEventListener("click", async () => {
+    closeDrivePopup();
+    await driveAction("/api/drive/login", "DELETE");
+    driveNote(`<p class="muted">Sign-in cancelled.</p>`);
+  });
+}
+
+function paintDriveJob(backup) {
+  const slot = document.querySelector("#drive-job");
+  if (backup.status === "running") {
+    const width = backup.total ? Math.round((backup.finished / backup.total) * 100) : 0;
+    slot.innerHTML = `
+      <div class="progress" aria-hidden="true"><span style="width:${width}%"></span></div>
+      <p class="muted">${escapeHtml(backup.message || "Backing up…")} · ${backup.finished} of ${backup.total}</p>`;
+  } else if (backup.status === "error") {
+    slot.innerHTML = `<p class="banner">${escapeHtml(backup.error)}</p>`;
+  } else if (backup.status === "done") {
+    slot.innerHTML = `<p class="ok">${escapeHtml(backup.message)}</p>`;
+  } else if (backup.status === "cancelled") {
+    slot.innerHTML = `<p class="muted">${escapeHtml(backup.message)}</p>`;
+  } else {
+    slot.innerHTML = "";
+  }
+}
+
+function openDrivePopup(url) {
+  const popup = window.open(url || "", "yotolib-google", "popup,width=520,height=720");
+  if (popup) state.drivePopup = popup;
+  return popup;
+}
+
+function closeDrivePopup() {
+  try {
+    if (state.drivePopup && !state.drivePopup.closed) state.drivePopup.close();
+  } catch (error) {
+    // The window may already be gone.
+  }
+  state.drivePopup = null;
+}
+
+async function copyDriveCode(code) {
+  try {
+    await navigator.clipboard.writeText(code);
+    driveNote(`<p class="muted">Code copied.</p>`);
+  } catch (error) {
+    driveNote(`<p class="muted">Select the code and copy it.</p>`);
+  }
+}
+
+async function signInDrive() {
+  driveNote("");
+  // Open the window during the click so the browser does not block it,
+  // then point it at Google once the code is ready.
+  const popup = openDrivePopup("");
+  try {
+    if (popup) popup.document.title = "Opening Google…";
+  } catch (error) {
+    // Ignore: only cosmetic.
+  }
+  try {
+    const status = await api("/api/drive/login", { method: "POST" });
+    const login = status.login;
+    if (popup) {
+      popup.location.href = login.verificationUrl;
+    } else {
+      driveNote(`<p class="muted">Your browser blocked the window. Choose <strong>Open Google window</strong>.</p>`);
+    }
+    applyDrive(status);
+    navigator.clipboard?.writeText(login.userCode).catch(() => {});
+  } catch (error) {
+    closeDrivePopup();
+    driveNote(`<p class="banner">${escapeHtml(error.message)}</p>`);
+  }
+}
+
+async function driveAction(path, method) {
+  try {
+    applyDrive(await api(path, { method }));
+    return true;
+  } catch (error) {
+    driveNote(`<p class="banner">${escapeHtml(error.message)}</p>`);
+    return false;
+  }
+}
+
+async function backupToDrive() {
+  driveNote("");
+  await driveAction("/api/drive/backup", "POST");
+}
+
+async function signOutDrive() {
+  if (await driveAction("/api/drive/logout", "POST")) {
+    driveNote(`<p class="muted">Signed out of Google Drive.</p>`);
+  }
+}
+
+async function saveDriveSettings(event) {
+  event.preventDefault();
+  const form = event.target;
+  try {
+    const status = await api("/api/drive", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: form.client_id.value,
+        client_secret: form.client_secret.value,
+        folder_name: form.folder_name.value,
+      }),
+    });
+    form.client_secret.value = "";
+    form.client_id.value = status.clientId || "";
+    form.folder_name.value = status.folderName;
+    applyDrive(status);
+    driveNote(`<p class="ok">Drive settings saved.</p>`);
+  } catch (error) {
+    driveNote(`<p class="banner">${escapeHtml(error.message)}</p>`);
+  }
 }
 
 async function saveSettings(event) {
