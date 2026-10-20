@@ -122,6 +122,20 @@ The NetworkPolicy lets the pod reach only cluster DNS and public https addresses
 
 To run an image you built yourself, push it to a registry your cluster can pull from, and set `newName` next to `newTag` in your overlay.
 
+## Releasing
+
+[CI](.github/workflows/ci.yml) runs on every branch push and pull request. It starts the app and checks its responses, validates the Kubernetes manifests, lints the workflows, and builds the Docker image for amd64 and arm64. Nothing is published.
+
+[Release](.github/workflows/release.yml) publishes the executables and the `ghcr.io/jodachecallan/yotolib` image. It runs only for a `v*` tag on `main`. Merge to `main`, then tag the merge commit:
+
+```bash
+git checkout main && git pull
+git tag -a v2.2.0 -m "Release notes"
+git push origin v2.2.0
+```
+
+A tag on any other branch stops at the `verify-tag` step without publishing.
+
 ## License
 
 The application is MIT. See [LICENSE](LICENSE).

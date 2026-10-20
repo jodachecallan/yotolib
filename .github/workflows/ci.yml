@@ -1,0 +1,142 @@
+name: CI
+
+# Tests every branch push and pull request. Nothing is published here.
+# Releases are published by release.yml, from tags on main only.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall -q config.py extractor.py gdrive.py server.py yotolib.py
+
+      - name: Check JavaScript syntax
+        run: node --check static/app.js
+
+      - name: Start the app and check its responses
+        env:
+          YOTOLIB_DATA_DIR: ${{ runner.temp }}/data
+          YOTOLIB_PORT: "8765"
+          YOTOLIB_OPEN_BROWSER: "0"
+        run: |
+          python yotolib.py > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 30); do
+            curl -fsS http://127.0.0.1:8765/api/health >/dev/null && break
+            sleep 1
+          done
+          set -x
+          curl -fsS http://127.0.0.1:8765/api/health
+          curl -fsS http://127.0.0.1:8765/ | grep -q "<title>YotoLib</title>"
+          curl -fsS http://127.0.0.1:8765/api/drive >/dev/null
+          # A foreign Host header is refused (DNS rebinding guard).
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:8765/)" = 400
+          # A write from another site is refused.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: https://evil.example' http://127.0.0.1:8765/api/drive/logout)" = 403
+          # Only Yoto card links are downloaded. Anything else fails without a fetch.
+          job=$(curl -fsS http://127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
+            -d '{"urls":"http://127.0.0.1/","confirm_ownership":true}' | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          for _ in $(seq 20); do
+            curl -fsS "http://127.0.0.1:8765/api/jobs/$job" > "$RUNNER_TEMP/job.json"
+            grep -q '"status":"done"' "$RUNNER_TEMP/job.json" && break
+            sleep 0.5
+          done
+          grep -q "Only Yoto card links" "$RUNNER_TEMP/job.json"
+
+      - name: Show the app log
+        if: failure()
+        run: cat "$RUNNER_TEMP/server.log"
+
+  manifests:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render and validate the example overlay
+        run: |
+          kubectl kustomize deploy/k8s/overlays/example > "$RUNNER_TEMP/rendered.yaml"
+          docker run -i --rm ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary - < "$RUNNER_TEMP/rendered.yaml"
+
+      - name: Check no local overlay was committed
+        run: |
+          if [ -e deploy/k8s/overlays/local ]; then
+            echo "::error::deploy/k8s/overlays/local is personal config and must not be committed."
+            exit 1
+          fi
+
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build for amd64 and arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Load the amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: yotolib:ci
+          cache-from: type=gha
+
+      - name: Run it as the cluster does
+        # Same restrictions as deploy/k8s/base/deployment.yaml.
+        run: |
+          docker run -d --name yotolib --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -p 8765:8765 yotolib:ci
+          for _ in $(seq 30); do
+            curl -fsS http://127.0.0.1:8765/api/health >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/api/health
+          curl -fsS http://127.0.0.1:8765/ | grep -q "<title>YotoLib</title>"
+
+      - name: Show the container log
+        if: failure()
+        run: docker logs yotolib
