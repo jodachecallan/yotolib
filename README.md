@@ -1,6 +1,10 @@
 # YotoLib
 
-YotoLib is a tool that lets you back up Yoto cards you already have a link for. Each card is kept in a library folder (cover, audio, and track list). A zip copy is written to a separate backup folder. Only back up cards you legally own, or cards you have permission to keep a copy of.
+YotoLib is a free, open-source app that backs up the Yoto cards you own. Paste a card's link, and YotoLib saves its audio, cover art, and track list to a library you can browse and play in the browser. A zip copy goes to a separate backup folder, and the library can be copied to Google Drive. It runs on Windows, macOS, and Linux, in Docker, and on Kubernetes. Only back up cards you legally own, or cards you have permission to keep a copy of.
+
+**Website:** [jodachecallan.github.io/yotolib](https://jodachecallan.github.io/yotolib/)
+
+YotoLib is an independent project. It is not affiliated with, endorsed by, or sponsored by Yoto.
 
 ## Getting Started
 

@@ -1,0 +1,67 @@
+name: Pages
+
+# Publishes the project website in site/ to GitHub Pages:
+# https://<owner>.github.io/<repo>/
+# Runs when the site changes on main, after each Release run (to show the
+# new version), and by hand. Screenshots come from docs/images and fonts
+# from static/fonts, so they are not stored twice.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p _site/images _site/fonts
+          cp -r site/. _site/
+          cp docs/images/*.png _site/images/
+          cp static/fonts/inter-latin.woff2 _site/fonts/
+          version="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          version="${version#v}"
+          updated="$(git log -1 --format=%cs)"
+          sed -i "s/__VERSION__/${version:-latest}/g" _site/index.html
+          sed -i "s/__UPDATED__/$updated/g" _site/sitemap.xml
+          if grep -rl "__VERSION__\|__UPDATED__" _site; then
+            echo "::error::A placeholder was not replaced."
+            exit 1
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

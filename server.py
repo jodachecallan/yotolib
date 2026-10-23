@@ -316,7 +316,12 @@ class RequestGuard:
             # Card files are served with the type their extension implies.
             # nosniff stops a browser from treating one as HTML or script.
             if message["type"] == "http.response.start":
-                message["headers"] = list(message.get("headers", [])) + [(b"x-content-type-options", b"nosniff")]
+                # Self-hosted instances are private: keep them out of search
+                # engines even if one is reachable from the internet.
+                message["headers"] = list(message.get("headers", [])) + [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-robots-tag", b"noindex, nofollow"),
+                ]
             await send(message)
 
         return await self.app(scope, receive, send_with_headers)
@@ -347,6 +352,11 @@ def _public_settings(settings):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots():
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
 
 @app.get("/api/settings")

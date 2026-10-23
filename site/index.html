@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YotoLib – Back up your Yoto cards to your computer or Google Drive</title>
+  <meta name="description" content="YotoLib is a free, open-source app that backs up the Yoto cards you own. It saves each card's audio, cover art, and track list to your computer, and can copy the library to Google Drive. Runs on Windows, macOS, Linux, Docker, and Kubernetes.">
+  <link rel="canonical" href="https://jodachecallan.github.io/yotolib/">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#f6f3ec">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <!-- Google Search Console: paste the verification tag here, or add the
+       googleXXXX.html file it gives you to the site folder. -->
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="YotoLib">
+  <meta property="og:title" content="YotoLib – Back up your Yoto cards">
+  <meta property="og:description" content="Free, open-source app that saves the audio, cover art, and track list of the Yoto cards you own, with optional Google Drive backup.">
+  <meta property="og:url" content="https://jodachecallan.github.io/yotolib/">
+  <meta property="og:image" content="https://jodachecallan.github.io/yotolib/images/home.png">
+  <meta property="og:image:width" content="1120">
+  <meta property="og:image:height" content="720">
+  <meta property="og:image:alt" content="The YotoLib home screen, showing the steps to back up a Yoto card.">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "YotoLib",
+    "description": "Free, open-source app that backs up the Yoto cards you own. It saves each card's audio, cover art, and track list to a local library, writes a zip backup, and can copy the library to Google Drive.",
+    "url": "https://jodachecallan.github.io/yotolib/",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows, macOS, Linux",
+    "softwareVersion": "__VERSION__",
+    "downloadUrl": "https://github.com/jodachecallan/yotolib/releases/latest",
+    "installUrl": "https://github.com/jodachecallan/yotolib#getting-started",
+    "screenshot": [
+      "https://jodachecallan.github.io/yotolib/images/home.png",
+      "https://jodachecallan.github.io/yotolib/images/add-cards.png"
+    ],
+    "license": "https://github.com/jodachecallan/yotolib/blob/main/LICENSE",
+    "isAccessibleForFree": true,
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "Jodache Callan Naidoo",
+      "url": "https://github.com/jodachecallan"
+    },
+    "sameAs": ["https://github.com/jodachecallan/yotolib"]
+  }
+  </script>
+
+  <style>
+    @font-face {
+      font-family: "Inter";
+      font-style: normal;
+      font-weight: 400 700;
+      font-display: swap;
+      src: url("fonts/inter-latin.woff2") format("woff2");
+    }
+
+    :root {
+      color-scheme: light;
+      --ink: #1c1b1a;
+      --ink-soft: #5e584e;
+      --line: #d9d3c7;
+      --paper: #ffffff;
+      --page: #f6f3ec;
+      --panel: #f1ede4;
+      --accent: #1565c0;
+      --radius: 12px;
+      --sans: "Inter", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font: 16px/1.6 var(--sans);
+    }
+
+    a { color: var(--accent); }
+
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+    header.top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 0;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.125rem; color: var(--ink); text-decoration: none; }
+    .brand svg { width: 32px; height: 32px; }
+    .top nav a { color: var(--ink-soft); text-decoration: none; margin-left: 20px; font-size: 0.9375rem; }
+    .top nav a:hover { color: var(--ink); }
+    @media (max-width: 560px) { .top nav a:not(:last-child) { display: none; } }
+
+    .hero { padding: 48px 0 32px; display: grid; gap: 40px; align-items: center; }
+    @media (min-width: 880px) { .hero { grid-template-columns: 1fr 1.15fr; padding-top: 64px; } }
+
+    h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 16px; }
+    .lede { font-size: 1.125rem; color: var(--ink-soft); margin: 0 0 28px; max-width: 34rem; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn {
+      display: inline-flex; align-items: center; min-height: 44px; padding: 0 22px;
+      border-radius: 22px; font-weight: 500; text-decoration: none; font-size: 0.9375rem;
+    }
+    .btn-primary { background: var(--ink); color: #fff; }
+    .btn-primary:hover { background: #000; }
+    .btn-ghost { border: 1px solid #7a7468; color: var(--ink); }
+    .btn-ghost:hover { background: rgba(28, 27, 26, 0.06); }
+    .note { margin-top: 14px; font-size: 0.875rem; color: var(--ink-soft); }
+
+    .shot {
+      width: 100%; height: auto; display: block;
+      border-radius: var(--radius); border: 1px solid var(--line);
+      box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.08);
+      background: var(--paper);
+    }
+
+    section { padding: 48px 0; }
+    h2 { font-size: 1.75rem; letter-spacing: -0.01em; margin: 0 0 8px; }
+    .section-lede { color: var(--ink-soft); margin: 0 0 28px; max-width: 40rem; }
+
+    .grid { display: grid; gap: 16px; }
+    @media (min-width: 720px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } .grid-2 { grid-template-columns: repeat(2, 1fr); } }
+
+    .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+    .card h3 { margin: 0 0 6px; font-size: 1.0625rem; }
+    .card p { margin: 0; color: var(--ink-soft); font-size: 0.9375rem; }
+
+    ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    ol.steps li { counter-increment: step; display: flex; gap: 14px; align-items: flex-start; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; }
+    ol.steps li::before {
+      content: counter(step); flex: none; width: 28px; height: 28px; border-radius: 50%;
+      background: var(--panel); display: grid; place-items: center; font-weight: 600; font-size: 0.875rem;
+    }
+
+    code, pre { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 0.875rem; }
+    pre { background: var(--ink); color: #f6f3ec; padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0 0; }
+
+    figure { margin: 0; }
+    figcaption { font-size: 0.875rem; color: var(--ink-soft); margin-top: 8px; }
+
+    details { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 20px; }
+    details + details { margin-top: 10px; }
+    summary { cursor: pointer; font-weight: 500; }
+    details p { color: var(--ink-soft); margin: 10px 0 0; }
+
+    footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--ink-soft); font-size: 0.875rem; }
+    footer p { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="./" aria-label="YotoLib home">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="5" y="4" width="16" height="22" rx="3" fill="#9ec0ef"/>
+          <rect x="11" y="7" width="16" height="22" rx="3" fill="#1c1b1a"/>
+        </svg>
+        YotoLib
+      </a>
+      <nav aria-label="Sections">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/jodachecallan/yotolib">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div>
+          <h1>Back up your Yoto cards</h1>
+          <p class="lede">YotoLib saves the audio, cover art, and track list of the Yoto cards you own to a library on your computer. It keeps a zip copy of each card, and can copy the whole library to Google Drive. Free and open source.</p>
+          <div class="actions">
+            <a class="btn btn-primary" href="https://github.com/jodachecallan/yotolib/releases/latest">Download for Windows, macOS, or Linux</a>
+            <a class="btn btn-ghost" href="#install">Docker and Kubernetes</a>
+          </div>
+          <p class="note">Version __VERSION__ · MIT licence · No account needed</p>
+        </div>
+        <figure>
+          <img class="shot" src="images/home.png" width="1120" height="720" alt="The YotoLib home screen, listing the steps to get a card's link, add it, and keep a backup.">
+        </figure>
+      </div>
+
+      <section id="features" aria-labelledby="features-heading">
+        <h2 id="features-heading">What YotoLib does</h2>
+        <p class="section-lede">Keep a copy of the cards your family listens to, so a lost or damaged card does not mean lost stories.</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <h3>Saves the whole card</h3>
+            <p>Each card is stored in its own folder with its audio tracks, cover art, track icons, and a <code>card.json</code> with the title, author, and chapters.</p>
+          </div>
+          <div class="card">
+            <h3>Plays in the browser</h3>
+            <p>Browse and search the library by title, author, or category, and play any track with the built-in audio player.</p>
+          </div>
+          <div class="card">
+            <h3>Keeps a spare copy</h3>
+            <p>A dated zip of every card goes to a separate backup folder, with a recovery list of each card's link so you can download it again.</p>
+          </div>
+          <div class="card">
+            <h3>Backs up to Google Drive</h3>
+            <p>Sign in with Google from the Cloud backup page and copy the library to a Drive folder. Cards that have not changed are skipped.</p>
+          </div>
+          <div class="card">
+            <h3>Runs where you want</h3>
+            <p>A desktop app for Windows, macOS, and Linux, a Docker image for amd64 and arm64, and Kubernetes manifests for a home server.</p>
+          </div>
+          <div class="card">
+            <h3>Stays on your network</h3>
+            <p>The library stays on your computer or server. YotoLib only connects to Yoto to download cards, and to Google when you back up.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="how-heading">
+        <h2 id="how-heading">How it works</h2>
+        <p class="section-lede">Back up a card in three steps.</p>
+        <div class="grid grid-2">
+          <ol class="steps">
+            <li><div><strong>Get the card's link.</strong> Hold the card to your phone with an NFC reader app such as NXP TagInfo, and copy the <code>yoto.io</code> link it shows.</div></li>
+            <li><div><strong>Paste it into YotoLib.</strong> Add one or more links on the Add cards page and confirm that you own the cards.</div></li>
+            <li><div><strong>Browse and back up.</strong> The cards appear in your library, with a zip copy in the backup folder and, if you choose, in Google Drive.</div></li>
+          </ol>
+          <figure>
+            <img class="shot" src="images/add-cards.png" width="1120" height="659" loading="lazy" alt="The YotoLib Add cards page, with a box to paste Yoto card links.">
+            <figcaption>Paste one or more Yoto card links to download them.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="install" aria-labelledby="install-heading">
+        <h2 id="install-heading">Install</h2>
+        <p class="section-lede">Choose the way that suits you. Every option is free.</p>
+        <div class="grid grid-3">
+          <div class="card">
+            <h3>Desktop app</h3>
+            <p>Download the app for <a href="https://github.com/jodachecallan/yotolib/releases/latest">Windows, macOS, or Linux</a>. No Python install is needed. Start it and it opens in your browser.</p>
+          </div>
+          <div class="card">
+            <h3>Docker</h3>
+            <p>Run the image and open <code>http://localhost:8765</code>.</p>
+            <pre><code>docker run -p 8765:8765 \
+  -v yotolib-data:/data \
+  ghcr.io/jodachecallan/yotolib</code></pre>
+          </div>
+          <div class="card">
+            <h3>Kubernetes</h3>
+            <p>Deploy with Kustomize from the repository. The <a href="https://github.com/jodachecallan/yotolib#kubernetes">Kubernetes guide</a> covers the overlay, Ingress, and storage.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" aria-labelledby="faq-heading">
+        <h2 id="faq-heading">Questions</h2>
+        <details>
+          <summary>Which Yoto cards can I back up?</summary>
+          <p>Cards you legally own, or cards you have permission to keep a copy of. YotoLib needs the card's <code>yoto.io</code> link, which you can read from the card with an NFC app on your phone.</p>
+        </details>
+        <details>
+          <summary>Does it need a Yoto account or a Yoto player?</summary>
+          <p>No. YotoLib works from the card's link. You do not sign in to Yoto.</p>
+        </details>
+        <details>
+          <summary>Where are my files stored?</summary>
+          <p>In a library folder and a backup folder that you choose. With Google Drive backup turned on, zip copies are also uploaded to a Drive folder that YotoLib creates. YotoLib can only see the files it created in your Drive.</p>
+        </details>
+        <details>
+          <summary>Can I run it on a home server or Raspberry Pi?</summary>
+          <p>Yes. The Docker image runs on amd64 and arm64, and the repository includes Kubernetes manifests with a NetworkPolicy and a hardened pod spec.</p>
+        </details>
+        <details>
+          <summary>Is it free?</summary>
+          <p>Yes. YotoLib is open source under the MIT licence. The code is on <a href="https://github.com/jodachecallan/yotolib">GitHub</a>.</p>
+        </details>
+      </section>
+    </main>
+
+    <footer>
+      <p>YotoLib is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Yoto. Yoto is a trademark of its owner.</p>
+      <p>Only back up cards you legally own, or have permission to keep a copy of. <a href="https://github.com/jodachecallan/yotolib/blob/main/LICENSE">MIT licence</a> · <a href="https://github.com/jodachecallan/yotolib">Source on GitHub</a></p>
+    </footer>
+  </div>
+</body>
+</html>
