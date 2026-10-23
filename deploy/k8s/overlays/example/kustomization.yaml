@@ -40,6 +40,19 @@ patches:
   #       path: /spec/ingressClassName
   #       value: nginx
 
+  # The published image is public and needs no pull secret. Uncomment only
+  # if you pull from a private registry. Create the secret first:
+  #   kubectl -n yotolib create secret docker-registry yotolib-registry \
+  #     --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+  # - target:
+  #     kind: Deployment
+  #     name: yotolib-web
+  #   patch: |-
+  #     - op: add
+  #       path: /spec/template/spec/imagePullSecrets
+  #       value:
+  #         - name: yotolib-registry
+
   # Uncomment to size the library volume or pick a StorageClass.
   # - target:
   #     kind: PersistentVolumeClaim
