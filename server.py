@@ -1,5 +1,6 @@
 """Local web API for the Yoto card library."""
 
+import errno
 import json
 import os
 import re
@@ -224,7 +225,15 @@ async def lifespan(_app):
     for folder in (settings["library_dir"], settings["backup_dir"]):
         try:
             os.makedirs(folder, exist_ok=True)
-        except PermissionError as ex:
+        except OSError as ex:
+            if ex.errno == errno.EROFS:
+                raise SystemExit(
+                    f"YotoLib cannot write to {folder}: the file system is read-only. "
+                    "Mount a writable volume at the data folder, for example "
+                    "-v yotolib-data:/data, or a PersistentVolumeClaim on Kubernetes."
+                ) from ex
+            if not isinstance(ex, PermissionError):
+                raise
             raise SystemExit(
                 f"YotoLib cannot write to {folder}. The app runs as user {os.getuid()}. "
                 "Give that user write access to the data folder, for example: "
