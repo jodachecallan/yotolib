@@ -1,6 +1,8 @@
-name: Build and attach release executables
+name: Release
 
-# Two ways in:
+# Publishes a release. Testing on branches and pull requests is in ci.yml.
+#
+# Three ways in:
 #  1. Push an annotated tag matching v* -- the workflow creates the GitHub
 #     Release itself (using the tag's own annotation as the release notes,
 #     falling back to auto-generated notes), then builds and attaches the
@@ -8,10 +10,16 @@ name: Build and attach release executables
 #     Releases endpoint isn't available to you.
 #  2. Publish a release by hand in the GitHub UI -- the workflow just builds
 #     and attaches the executables to that release.
-# Either way, PyInstaller builds a native package per OS, each on its own
-# OS-native runner (PyInstaller does not cross-compile): a Windows .exe, a
-# Linux single-binary tarball, and a macOS .app bundled into a .dmg.
-# Builds run in this repository and attach the files to its GitHub Release.
+#  3. Run it by hand for an existing tag, to rebuild that release.
+# Only tags on main are published. A tag on any other branch stops at
+# verify-tag.
+#
+# PyInstaller builds a native package per OS, each on its own OS-native
+# runner (PyInstaller does not cross-compile): a Windows .exe, a Linux
+# single-binary tarball, and a macOS .app bundled into a .dmg.
+# A multi-arch Docker image (linux/amd64, linux/arm64) is pushed to
+# ghcr.io/<owner>/yotolib, tagged with the release tag, its semver forms
+# (2.1.0, 2.1), and latest.
 on:
   push:
     tags:
@@ -28,37 +36,73 @@ permissions:
   contents: write
 
 jobs:
-  ensure-release:
-    if: github.event_name == 'push'
+  verify-tag:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Determine release tag
+        id: tag
+        # Values come in through env, not ${{ }} in the script, so a tag
+        # name cannot inject shell commands.
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ]; then tag="$RELEASE_TAG"; fi
+          if [ -z "$tag" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="${GITHUB_REF#refs/tags/}"; fi
+          if [ -z "$tag" ]; then
+            echo "::error::No release tag found."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag is on main
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if ! git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" >/dev/null; then
+            echo "::error::Tag $TAG does not exist."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "refs/tags/$TAG^{commit}" origin/main; then
+            echo "::error::Tag $TAG is not on main. Merge to main, then tag the merge commit."
+            exit 1
+          fi
+
+  ensure-release:
+    needs: [verify-tag]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Determine tag and create release if needed
-        id: tag
+      - name: Create the release if needed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.verify-tag.outputs.tag }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release $tag already exists, skipping creation."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping creation."
             exit 0
           fi
-          notes="$(git tag -l --format='%(contents)' "$tag")"
+          notes="$(git tag -l --format='%(contents)' "$TAG")"
           if [ -z "$notes" ]; then
-            gh release create "$tag" --repo "${{ github.repository }}" --title "$tag" --generate-notes
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
           else
-            gh release create "$tag" --repo "${{ github.repository }}" --title "$tag" --notes "$notes"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes "$notes"
           fi
 
   build-executable:
-    needs: [ensure-release]
-    if: always() && (needs.ensure-release.result == 'success' || needs.ensure-release.result == 'skipped')
+    needs: [verify-tag, ensure-release]
+    if: always() && needs.verify-tag.result == 'success' && (needs.ensure-release.result == 'success' || needs.ensure-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -74,8 +118,12 @@ jobs:
             icon_args: ""
             data_sep: ":"
     runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ needs.verify-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.verify-tag.outputs.tag }}
 
       - uses: actions/setup-python@v5
         with:
@@ -88,18 +136,6 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Determine release tag
-        id: tag
-        shell: bash
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ needs.ensure-release.outputs.tag }}" ]; then
-            echo "tag=${{ needs.ensure-release.outputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build executable
         # No --windowed: the app is a local server, and the console is how
         # you stop it. Static files are unpacked beside the executable at
@@ -109,7 +145,7 @@ jobs:
           pyinstaller --onefile ${{ matrix.icon_args }} \
             --add-data "static${{ matrix.data_sep }}static" \
             --collect-submodules uvicorn \
-            --name "yotolib_${{ steps.tag.outputs.tag }}${{ matrix.suffix }}" \
+            --name "yotolib_${TAG}${{ matrix.suffix }}" \
             yotolib.py
 
       - name: Package as tar.gz (Linux only)
@@ -123,7 +159,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          name="yotolib_${{ steps.tag.outputs.tag }}${{ matrix.suffix }}"
+          name="yotolib_${TAG}${{ matrix.suffix }}"
           chmod +x "dist/$name"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
 
@@ -132,17 +168,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ steps.tag.outputs.tag }}" \
-            "dist/yotolib_${{ steps.tag.outputs.tag }}${{ matrix.suffix }}${{ matrix.ext }}" \
-            --repo "${{ github.repository }}" \
+          gh release upload "$TAG" \
+            "dist/yotolib_${TAG}${{ matrix.suffix }}${{ matrix.ext }}" \
+            --repo "$GITHUB_REPOSITORY" \
             --clobber
 
   build-macos-dmg:
-    needs: [ensure-release]
-    if: always() && (needs.ensure-release.result == 'success' || needs.ensure-release.result == 'skipped')
+    needs: [verify-tag, ensure-release]
+    if: always() && needs.verify-tag.result == 'success' && (needs.ensure-release.result == 'success' || needs.ensure-release.result == 'skipped')
     runs-on: macos-latest
+    env:
+      TAG: ${{ needs.verify-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.verify-tag.outputs.tag }}
 
       - uses: actions/setup-python@v5
         with:
@@ -153,17 +193,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-
-      - name: Determine release tag
-        id: tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          elif [ -n "${{ needs.ensure-release.outputs.tag }}" ]; then
-            echo "tag=${{ needs.ensure-release.outputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Build .app bundle
         # No --onefile here: on macOS that produces a bare Mach-O binary
@@ -186,13 +215,71 @@ jobs:
           hdiutil create -volname "YotoLib" \
             -srcfolder "$staging" \
             -ov -format UDZO \
-            "dist/yotolib_${{ steps.tag.outputs.tag }}_macos.dmg"
+            "dist/yotolib_${TAG}_macos.dmg"
 
       - name: Upload .dmg to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ steps.tag.outputs.tag }}" \
-            "dist/yotolib_${{ steps.tag.outputs.tag }}_macos.dmg" \
-            --repo "${{ github.repository }}" \
+          gh release upload "$TAG" \
+            "dist/yotolib_${TAG}_macos.dmg" \
+            --repo "$GITHUB_REPOSITORY" \
             --clobber
+
+  build-image:
+    needs: [verify-tag, ensure-release]
+    if: always() && needs.verify-tag.result == 'success' && (needs.ensure-release.result == 'success' || needs.ensure-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ needs.verify-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.verify-tag.outputs.tag }}
+
+      - name: Check for a Dockerfile
+        run: |
+          if [ ! -f Dockerfile ]; then
+            echo "::error::Tag $TAG has no Dockerfile. Images can only be built for releases tagged after the Dockerfile was added."
+            exit 1
+          fi
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/yotolib" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # latest moves only on a new full release: not for pre-release
+          # tags (semver skips those), and not on a manual rebuild.
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=${{ env.TAG }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=semver,pattern=latest,value=${{ env.TAG }},enable=${{ github.event_name != 'workflow_dispatch' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

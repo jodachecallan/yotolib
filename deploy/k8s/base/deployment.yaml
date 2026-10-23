@@ -1,0 +1,97 @@
+# Do not edit per-cluster values here. Set the image tag and
+# YOTOLIB_ALLOWED_HOSTS in your overlay (see overlays/example).
+# The yotolib-google-oauth secret is optional. It can hold
+# YOTOLIB_GOOGLE_CLIENT_ID and YOTOLIB_GOOGLE_CLIENT_SECRET instead of typing
+# them in Cloud backup.
+# Keep replicas at 1. The library lives on one volume.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yotolib-web
+  namespace: yotolib
+  labels:
+    app.kubernetes.io/name: yotolib
+    app.kubernetes.io/instance: yotolib
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: yotolib
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: yotolib
+      app.kubernetes.io/instance: yotolib
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yotolib
+        app.kubernetes.io/instance: yotolib
+        app.kubernetes.io/component: web
+        app.kubernetes.io/part-of: yotolib
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: yotolib-web
+          image: ghcr.io/jodachecallan/yotolib:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8765
+          envFrom:
+            - configMapRef:
+                name: yotolib-settings
+            - secretRef:
+                name: yotolib-google-oauth
+                optional: true
+          env:
+            - name: YOTOLIB_HOST
+              value: "0.0.0.0"
+            - name: YOTOLIB_PORT
+              value: "8765"
+            - name: YOTOLIB_OPEN_BROWSER
+              value: "0"
+            - name: YOTOLIB_DATA_DIR
+              value: /data
+          volumeMounts:
+            - name: library-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: library-data
+          persistentVolumeClaim:
+            claimName: yotolib-library-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi

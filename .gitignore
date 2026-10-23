@@ -3,3 +3,5 @@ __pycache__
 backups/
 library/
 config.json
+drive-token.json
+deploy/k8s/overlays/local/

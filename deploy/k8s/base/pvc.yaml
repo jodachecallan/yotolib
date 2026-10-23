@@ -1,0 +1,21 @@
+# Persistent disk for the library, backups, config.json, and recovery.json.
+# A Google Drive backup stages one card zip here at a time while it uploads.
+# Raise storage to fit the library. Set storageClassName if the cluster
+# has no default StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: yotolib-library-data
+  namespace: yotolib
+  labels:
+    app.kubernetes.io/name: yotolib
+    app.kubernetes.io/instance: yotolib
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: yotolib
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
