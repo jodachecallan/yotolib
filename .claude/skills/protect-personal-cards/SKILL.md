@@ -24,6 +24,6 @@ Personal card data stays on this machine.
 2. Run `git diff --cached --name-only` and `git status --short`.
 3. Stop if either list contains `library/`, `backups/`, `card.json`, `recovery.json`, `config.json`, or a card URL.
 
-The hook `.cursor/hooks/block-personal-cards.py` denies those shell commands and denies edits that weaken `.gitignore` or write card URLs into tracked files. Git `pre-commit` and `pre-push` in this clone do the same check.
+The Claude Code hook `.claude/hooks/block-personal-cards.py` (set in `.claude/settings.json`) denies those shell commands and denies edits that weaken `.gitignore` or write card URLs into tracked files. Git `pre-commit` and `pre-push` in this clone do the same check.
 
 If the hook denies a command, stop. Do not force-add, skip hooks, rewrite `.gitignore`, or copy the files to another path and upload that copy.

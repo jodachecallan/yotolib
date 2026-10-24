@@ -126,6 +126,18 @@ The NetworkPolicy lets the pod reach only cluster DNS and public https addresses
 
 To run an image you built yourself, push it to a registry your cluster can pull from, and set `newName` next to `newTag` in your overlay.
 
+## Tests
+
+The UI tests open the app in headless Chromium at phone sizes (iPhone 13, Pixel 7, 320px) and at desktop size. They check that pages don't scroll sideways, that the bottom nav and touch targets work, and that the library scroll position and the sticky player behave. The app runs against a made-up library in a temp folder, so your own cards are never used.
+
+```bash
+pip install -r requirements-dev.txt
+python -m playwright install --with-deps chromium
+pytest tests/ui
+```
+
+Screenshots are saved to `test-results/ui/`. CI runs the same tests on every push.
+
 ## Releasing
 
 [CI](.github/workflows/ci.yml) runs on every branch push and pull request. It starts the app and checks its responses, validates the Kubernetes manifests, lints the workflows, and builds the Docker image for amd64 and arm64. Nothing is published.

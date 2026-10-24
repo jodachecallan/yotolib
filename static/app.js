@@ -13,6 +13,7 @@ const state = {
   query: "",
   author: "",
   category: "",
+  libraryScroll: 0,
 };
 
 navButtons.forEach((button) => {
@@ -22,7 +23,7 @@ navButtons.forEach((button) => {
   });
 });
 
-function show(page) {
+function show(page, scrollY = 0) {
   stopPlayback();
   stopJobPoll();
   stopDrivePoll();
@@ -32,7 +33,8 @@ function show(page) {
     button.classList.toggle("is-active", button.dataset.view === page);
   });
   if (page === "home") loadHome();
-  if (page === "library") loadLibrary();
+  window.scrollTo(0, 0);
+  if (page === "library") loadLibrary(scrollY);
   if (page === "add") loadAdd();
   if (page === "cloud") loadCloud();
   if (page === "settings") loadSettings();
@@ -306,7 +308,7 @@ function renderLibrary() {
   });
 }
 
-async function loadLibrary() {
+async function loadLibrary(scrollY = 0) {
   view.innerHTML = `<div class="toolbar"><h2>Your library</h2><p class="muted">Loading your library…</p></div>`;
   try {
     state.cards = await api("/api/cards");
@@ -324,6 +326,7 @@ async function loadLibrary() {
       return;
     }
     renderLibrary();
+    if (scrollY) window.scrollTo(0, scrollY);
   } catch (error) {
     view.innerHTML = `<p class="banner">${escapeHtml(error.message)}</p>`;
   }
@@ -475,6 +478,7 @@ function startPlayer(card, playlist) {
 async function openCard(cardId) {
   stopPlayback();
   state.cardId = cardId;
+  state.libraryScroll = window.scrollY;
   navButtons.forEach((button) => button.classList.remove("is-active"));
   try {
     const card = await api(`/api/cards/${encodeURIComponent(cardId)}`);
@@ -524,7 +528,8 @@ async function openCard(cardId) {
           <ol class="tracks">${tracks}</ol>
         </div>
       </article>`;
-    document.querySelector("#back").addEventListener("click", () => show("library"));
+    window.scrollTo(0, 0);
+    document.querySelector("#back").addEventListener("click", () => show("library", state.libraryScroll));
     if (playlist.length) startPlayer(card, playlist);
   } catch (error) {
     if (state.cardId !== cardId) return;
