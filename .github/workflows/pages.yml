@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p _site/images _site/fonts
           cp -r site/. _site/
-          cp docs/images/*.png _site/images/
+          cp docs/images/*.png docs/images/*.mp4 _site/images/
           cp static/fonts/inter-latin.woff2 _site/fonts/
           version="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
           version="${version#v}"

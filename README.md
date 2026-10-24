@@ -12,6 +12,12 @@ YotoLib is an independent project. It is not affiliated with, endorsed by, or sp
 
 ## Screenshots
 
+![A short walk through YotoLib: the library, filters, search, playing a card, Add cards, and Cloud backup](docs/images/demo.gif)
+
+![Library](docs/images/library.png)
+
+<img src="docs/images/library-mobile.png" alt="The library on a phone" width="300">
+
 ![Home](docs/images/home.png)
 
 ![Add cards](docs/images/add-cards.png)

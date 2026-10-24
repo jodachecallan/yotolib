@@ -5,6 +5,7 @@ tests never touch the real library. Set YOTOLIB_UI_BASE_URL to point the
 tests at a running copy instead; tests that need the made-up cards skip.
 """
 
+import contextlib
 import json
 import os
 import socket
@@ -99,18 +100,9 @@ def _free_port():
         return sock.getsockname()[1]
 
 
-@pytest.fixture(scope="session")
-def remote():
-    return bool(os.environ.get("YOTOLIB_UI_BASE_URL", "").strip())
-
-
-@pytest.fixture(scope="session")
-def base_url(tmp_path_factory, remote):
-    if remote:
-        yield os.environ["YOTOLIB_UI_BASE_URL"].strip().rstrip("/")
-        return
-    data_dir = tmp_path_factory.mktemp("yotolib-data")
-    build_library(data_dir)
+@contextlib.contextmanager
+def run_app(data_dir):
+    """Start YotoLib on a free port with data_dir as its data folder."""
     port = _free_port()
     env = {
         **os.environ,
@@ -134,10 +126,10 @@ def base_url(tmp_path_factory, remote):
             except OSError:
                 time.sleep(0.5)
         else:
-            pytest.fail("YotoLib did not start in time.")
+            raise RuntimeError("YotoLib did not start in time.")
         if proc.poll() is not None:
             log.close()
-            pytest.fail("YotoLib exited:\n" + (data_dir / "server.log").read_text())
+            raise RuntimeError("YotoLib exited:\n" + (data_dir / "server.log").read_text())
         yield url
     finally:
         proc.terminate()
@@ -146,6 +138,22 @@ def base_url(tmp_path_factory, remote):
         except subprocess.TimeoutExpired:
             proc.kill()
         log.close()
+
+
+@pytest.fixture(scope="session")
+def remote():
+    return bool(os.environ.get("YOTOLIB_UI_BASE_URL", "").strip())
+
+
+@pytest.fixture(scope="session")
+def base_url(tmp_path_factory, remote):
+    if remote:
+        yield os.environ["YOTOLIB_UI_BASE_URL"].strip().rstrip("/")
+        return
+    data_dir = tmp_path_factory.mktemp("yotolib-data")
+    build_library(data_dir)
+    with run_app(data_dir) as url:
+        yield url
 
 
 @pytest.fixture(scope="session")
