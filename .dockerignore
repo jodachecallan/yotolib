@@ -1,6 +1,10 @@
 .git
 .github
-.cursor
+.claude
+CLAUDE.md
+tests
+test-results
+requirements-dev.txt
 **/__pycache__
 *venv
 library

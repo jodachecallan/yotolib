@@ -1,12 +1,22 @@
 # YotoLib
 
-YotoLib is a tool that lets you back up Yoto cards you already have a link for. Each card is kept in a library folder (cover, audio, and track list). A zip copy is written to a separate backup folder. Only back up cards you legally own, or cards you have permission to keep a copy of.
+YotoLib is a free, open-source app that backs up the Yoto cards you own. Paste a card's link, and YotoLib saves its audio, cover art, and track list to a library you can browse and play in the browser. A zip copy goes to a separate backup folder, and the library can be copied to Google Drive. It runs on Windows, macOS, and Linux, in Docker, and on Kubernetes. Only back up cards you legally own, or cards you have permission to keep a copy of.
+
+**Website:** [jodachecallan.github.io/yotolib](https://jodachecallan.github.io/yotolib/)
+
+YotoLib is an independent project. It is not affiliated with, endorsed by, or sponsored by Yoto.
 
 ## Getting Started
 
 [Releases](https://github.com/jodachecallan/yotolib/releases) include a built app for Windows, macOS, and Linux. No Python install is required. Closing the console window stops the app. Each release is also published as a Docker image, `ghcr.io/jodachecallan/yotolib`, for amd64 and arm64. See [Docker](#docker) and [Kubernetes](#kubernetes).
 
 ## Screenshots
+
+![A short walk through YotoLib: the library, filters, search, playing a card, Add cards, and Cloud backup](docs/images/demo.gif)
+
+![Library](docs/images/library.png)
+
+<img src="docs/images/library-mobile.png" alt="The library on a phone" width="300">
 
 ![Home](docs/images/home.png)
 
@@ -121,6 +131,18 @@ Keep the Ingress hostname on your LAN. The app has no login, and anyone who can 
 The NetworkPolicy lets the pod reach only cluster DNS and public https addresses, so it cannot reach other cluster services or your LAN. Your CNI must support NetworkPolicy (Calico, Cilium, or k3s). Plain flannel ignores it.
 
 To run an image you built yourself, push it to a registry your cluster can pull from, and set `newName` next to `newTag` in your overlay.
+
+## Tests
+
+The UI tests open the app in headless Chromium at phone sizes (iPhone 13, Pixel 7, 320px) and at desktop size. They check that pages don't scroll sideways, that the bottom nav and touch targets work, and that the library scroll position and the sticky player behave. The app runs against a made-up library in a temp folder, so your own cards are never used.
+
+```bash
+pip install -r requirements-dev.txt
+python -m playwright install --with-deps chromium
+pytest tests/ui
+```
+
+Screenshots are saved to `test-results/ui/`. CI runs the same tests on every push.
 
 ## Releasing
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Block commits and uploads of personal Yoto card data.
 
-Cursor hook (stdin JSON) and git pre-commit / pre-push hook.
+Claude Code PreToolUse hook (stdin JSON) and git pre-commit / pre-push hook.
 Personal data is the card library and backups, including custom folders
 from config.json, plus Yoto card URLs. Local reads stay allowed.
 """
@@ -21,19 +21,7 @@ PERSONAL_FILENAMES = {"card.json", "recovery.json"}
 SHELLS = {"bash", "sh", "zsh", "dash", "busybox"}
 TRANSFER = {"cp", "mv", "install", "rsync", "scp", "rclone"}
 CLOUD = {"aws", "gsutil", "az", "azcopy", "lftp", "ftp", "nc", "ncat"}
-WRITE_TOOLS = {"write", "strreplace", "edit", "delete", "applypatch", "search_replace"}
-READ_TOOLS = {
-    "read",
-    "grep",
-    "glob",
-    "semsearch",
-    "readlints",
-    "webfetch",
-    "websearch",
-    "task",
-    "todowrite",
-    "await",
-}
+READ_TOOLS = {"read", "grep", "glob", "webfetch", "websearch", "toolsearch"}
 
 USER_MESSAGE = (
     "Blocked so personal Yoto cards stay on this machine. "
@@ -41,12 +29,22 @@ USER_MESSAGE = (
 )
 
 
-def emit_cursor(permission: str, agent_message: str = "", user_message: str = "") -> int:
-    payload = {"permission": permission}
-    if permission != "allow":
-        payload["user_message"] = user_message or USER_MESSAGE
-        payload["agent_message"] = agent_message or USER_MESSAGE
-    sys.stdout.write(json.dumps(payload))
+def deny_payload(reason: str) -> str:
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": USER_MESSAGE + " " + reason,
+            }
+        }
+    )
+
+
+def emit_claude(reason: str | None) -> int:
+    # Allow is silent so the normal permission flow still applies.
+    if reason:
+        sys.stdout.write(deny_payload(reason))
     return 0
 
 
@@ -538,9 +536,21 @@ def check_curl(argv: list[str], cwd: Path, roots: list[Path], repo: Path | None)
         return None
     if SHARE_URL.search(" ".join(argv)):
         return "curl would send a Yoto card URL."
-    if any(is_personal_path(arg, cwd, roots, repo) for arg in argv):
+    if any(is_personal_path(arg, cwd, roots, repo) for arg in curl_file_args(argv)):
         return "curl would upload personal card files."
     return None
+
+
+def curl_file_args(argv: list[str]) -> list[str]:
+    """Arguments plus the file part of -F name=@file, -d @file, and name=<file."""
+    found = list(argv)
+    for arg in argv:
+        for marker in ("=@", "=<"):
+            if marker in arg:
+                found.append(arg.split(marker, 1)[1].split(";", 1)[0])
+        if arg.startswith(("@", "<")):
+            found.append(arg[1:])
+    return found
 
 
 def check_gh(argv: list[str], cwd: Path, roots: list[Path], repo: Path | None) -> str | None:
@@ -622,7 +632,7 @@ def evaluate_command(command: str, cwd: Path) -> str | None:
 
 
 def tool_file(inp: dict) -> Path | None:
-    for key in ("path", "file_path", "target_file"):
+    for key in ("file_path", "notebook_path", "path"):
         raw = inp.get(key)
         if isinstance(raw, str) and raw.strip():
             return Path(raw)
@@ -631,10 +641,10 @@ def tool_file(inp: dict) -> Path | None:
 
 def evaluate_tool(name: str, inp: dict, cwd: Path) -> str | None:
     lowered = name.lower()
-    if lowered in READ_TOOLS or lowered.startswith("mcp:"):
+    if lowered in READ_TOOLS or lowered.startswith("mcp__"):
         return None
     command = inp.get("command")
-    if isinstance(command, str) and lowered in {"shell", "bash"}:
+    if isinstance(command, str) and lowered == "bash":
         return evaluate_command(command, cwd)
 
     path = tool_file(inp)
@@ -646,8 +656,6 @@ def evaluate_tool(name: str, inp: dict, cwd: Path) -> str | None:
     roots = personal_roots(repo, cwd)
 
     if path.name == ".gitignore" or path.as_posix().endswith("/.gitignore"):
-        if lowered == "delete":
-            return "Deleting .gitignore would stop ignoring the card library, backups, and config.json."
         contents = inp.get("contents")
         if contents is None:
             contents = inp.get("content")
@@ -669,15 +677,12 @@ def evaluate_tool(name: str, inp: dict, cwd: Path) -> str | None:
                 return ".gitignore must keep ignoring library/, backups/, and config.json."
         return None
 
-    if lowered == "delete":
-        return None
-
     destination_personal = any(inside(path, root) for root in roots)
     if path.name in PERSONAL_FILENAMES and not destination_personal:
         return "card.json and recovery.json stay inside library/ or backups/."
 
     blobs = []
-    for key in ("contents", "content", "new_string"):
+    for key in ("contents", "content", "new_string", "new_source"):
         value = inp.get(key)
         if isinstance(value, str):
             blobs.append(value)
@@ -686,29 +691,15 @@ def evaluate_tool(name: str, inp: dict, cwd: Path) -> str | None:
     return None
 
 
-def cursor_main(data: dict) -> int:
+def claude_main(data: dict) -> int:
     cwd = Path(data.get("cwd") or os.getcwd())
-    command = data.get("command")
-    if isinstance(command, str):
-        reason = evaluate_command(command, cwd)
-        if reason:
-            return emit_cursor("deny", reason)
-        return emit_cursor("allow")
-
-    name = data.get("tool_name") or data.get("tool") or ""
-    inp = data.get("tool_input") or data.get("input") or {}
+    name = data.get("tool_name") or ""
+    inp = data.get("tool_input") or {}
     if not isinstance(inp, dict):
         inp = {}
-    if isinstance(name, str) and name:
-        reason = evaluate_tool(name, inp, cwd)
-        if reason:
-            return emit_cursor("deny", reason)
-        nested = inp.get("command")
-        if isinstance(nested, str):
-            reason = evaluate_command(nested, cwd)
-            if reason:
-                return emit_cursor("deny", reason)
-    return emit_cursor("allow")
+    if not isinstance(name, str) or not name:
+        return emit_claude(None)
+    return emit_claude(evaluate_tool(name, inp, cwd))
 
 
 def git_hook_main(mode: str) -> int:
@@ -756,17 +747,14 @@ def main() -> int:
         return git_hook_main(sys.argv[1])
     raw = sys.stdin.read()
     if not raw.strip():
-        return emit_cursor("allow")
+        return emit_claude(None)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return emit_cursor(
-            "deny",
-            "The hook received invalid input and failed closed.",
-        )
+        return emit_claude("The hook received invalid input and failed closed.")
     if not isinstance(data, dict):
-        return emit_cursor("deny", "The hook received unexpected input and failed closed.")
-    return cursor_main(data)
+        return emit_claude("The hook received unexpected input and failed closed.")
+    return claude_main(data)
 
 
 if __name__ == "__main__":
@@ -778,13 +766,6 @@ if __name__ == "__main__":
         if any(arg.startswith("--git-") for arg in sys.argv):
             sys.stderr.write(f"personal card hook failed closed: {exc}\n")
             raise SystemExit(1) from exc
-        sys.stdout.write(
-            json.dumps(
-                {
-                    "permission": "deny",
-                    "user_message": USER_MESSAGE,
-                    "agent_message": "The personal-card hook crashed and failed closed. Do not upload library/ or backups/.",
-                }
-            )
-        )
+        # A non-zero exit does not block a tool call, so deny explicitly.
+        sys.stdout.write(deny_payload(f"The hook crashed and failed closed ({exc})."))
         raise SystemExit(0) from exc

@@ -237,8 +237,16 @@ def parse_card(html):
         payload = json.loads(script_tag.string)
     except json.JSONDecodeError as ex:
         raise ExtractFail("Card page did not contain valid JSON.") from ex
-    card = _lookup(payload, "props", "pageProps", "card")
+    page_props = _lookup(payload, "props", "pageProps")
+    card = page_props.get("card") if isinstance(page_props, dict) else None
     if not isinstance(card, dict):
+        # Store-bought cards share a page with no card data; their audio is only
+        # streamed to a signed-in Yoto account.
+        if isinstance(page_props, dict) and page_props.get("isPhysicalCard"):
+            raise ExtractFail(
+                "This link is for a store-bought Yoto card. Yoto does not publish its "
+                "tracks on the share page, so it cannot be backed up."
+            )
         raise ExtractFail("No card object found in JSON blob.")
     return card
 
